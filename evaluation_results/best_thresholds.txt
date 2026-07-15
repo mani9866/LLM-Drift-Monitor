@@ -1,0 +1,10 @@
+Recommended Operating Thresholds (from ROC curve analysis)
+============================================================
+
+semantic_drift            threshold=0.00  F1=0.667
+rolling_window_drift      threshold=0.70  F1=0.733
+response_anomaly          threshold=0.00  F1=0.667
+ensemble                  threshold=0.00  F1=0.667
+
+
+Recommendation: Use ensemble detector with threshold=0.50

@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-drift_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-drift_password}
+      POSTGRES_DB: ${DB_NAME:-drift_monitor}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-drift_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-drift_user}:${DB_PASSWORD:-drift_password}@postgres:5432/${DB_NAME:-drift_monitor}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
+
+  prefect:
+    build:
+      context: .
+      dockerfile: Dockerfile.prefect
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-drift_user}:${DB_PASSWORD:-drift_password}@postgres:5432/${DB_NAME:-drift_monitor}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m src.flows
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-drift_user}:${DB_PASSWORD:-drift_password}@postgres:5432/${DB_NAME:-drift_monitor}
+    ports:
+      - "8501:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+
+volumes:
+  postgres_data:
