@@ -4,20 +4,45 @@ Each detector takes a conversation dict and returns a float score (0.0 to 1.0).
 Signature: (conversation: dict) -> float
 """
 
+import logging
+
 import numpy as np
 from typing import List, Dict, Any, Tuple
-from sentence_transformers import SentenceTransformer
 
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - optional dependency fallback
+    SentenceTransformer = None
+
+from sklearn.feature_extraction.text import HashingVectorizer
+
+logger = logging.getLogger(__name__)
 
 # Load model once at module level for efficiency
 _model = None
+_vectorizer = None
 
 
 def get_model():
-    """Lazy-load Sentence-BERT model."""
+    """Lazy-load Sentence-BERT model with a lightweight fallback."""
     global _model
     if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
+        if SentenceTransformer is None:
+            logger.warning(
+                "sentence-transformers not installed; falling back to "
+                "HashingVectorizer embeddings (lower detection accuracy)."
+            )
+            _model = "fallback"
+        else:
+            try:
+                _model = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception as e:
+                logger.warning(
+                    "Failed to load SentenceTransformer model (%s); falling "
+                    "back to HashingVectorizer embeddings (lower detection "
+                    "accuracy).", e,
+                )
+                _model = "fallback"
     return _model
 
 
@@ -26,15 +51,37 @@ def normalize_score(score: float, min_val: float = 0.0, max_val: float = 1.0) ->
     return max(min_val, min(max_val, score))
 
 
+def _fallback_embeddings(texts: List[str]) -> np.ndarray:
+    """Create deterministic bag-of-ngrams embeddings when no transformer model is available."""
+    global _vectorizer
+    if _vectorizer is None:
+        _vectorizer = HashingVectorizer(n_features=256, ngram_range=(1, 2), norm="l2")
+    matrix = _vectorizer.transform(texts).toarray().astype(np.float32)
+    return matrix
+
+
 def get_embeddings(texts: List[str]) -> np.ndarray:
     """Get embeddings for a list of texts.
-    
+
     Returns:
         (n_texts, embedding_dim) numpy array
     """
-    model = get_model()
-    embeddings = model.encode(texts, show_progress_bar=False)
-    return np.array(embeddings, dtype=np.float32)
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
+
+    try:
+        model = get_model()
+        if model == "fallback":
+            raise RuntimeError("Sentence transformer unavailable")
+        embeddings = model.encode(texts, show_progress_bar=False)
+        return np.array(embeddings, dtype=np.float32)
+    except Exception as e:
+        if not isinstance(e, RuntimeError) or str(e) != "Sentence transformer unavailable":
+            logger.warning(
+                "SentenceTransformer.encode failed (%s); falling back to "
+                "HashingVectorizer embeddings (lower detection accuracy).", e,
+            )
+        return _fallback_embeddings(texts)
 
 
 def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:

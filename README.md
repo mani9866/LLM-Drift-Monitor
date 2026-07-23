@@ -479,14 +479,21 @@ llm-drift-monitor/
 │   │   ├── app.py              # FastAPI service
 │   │   └── schemas.py          # Pydantic validators
 │   ├── flows/
-│   │   └── __init__.py         # Prefect scheduling flow
+│   │   ├── __init__.py         # Prefect scheduling flow
+│   │   └── scoring.py          # Shared scoring helper (API + flow)
 │   └── evaluation/
 │       └── __init__.py         # Eval script (precision/recall/F1/ROC)
 ├── dashboard/
 │   └── app.py                  # Streamlit multi-view dashboard
 ├── scripts/
-│   ├── generate_conversations.py  # Synthetic data generation
-│   └── ingest_conversations.py    # Load into DB
+│   ├── topics.py                       # Shared topic list for data generation
+│   ├── generate_conversations.py       # Synthetic data generation (Anthropic API)
+│   ├── generate_mock_conversations.py  # Synthetic data generation (no API needed)
+│   ├── ingest_conversations.py         # Load into DB
+│   ├── quick_demo.py                   # CLI demo scoring a few conversations
+│   └── test.py                         # Streamlit Cloud deployment diagnostics page
+├── tests/
+│   └── test_scoring.py         # Unit tests for the scoring helper
 ├── data/
 │   ├── conversations.jsonl     # Generated conversations
 │   └── labels.csv              # Ground-truth labels
@@ -494,9 +501,14 @@ llm-drift-monitor/
 ├── Dockerfile.api
 ├── Dockerfile.prefect
 ├── Dockerfile.dashboard
-├── requirements.txt            # All dependencies
-├── .env.example                # Configuration template
-└── README.md                   # This file
+├── quickstart.py                # Cross-platform quickstart helper (install + init DB)
+├── requirements.txt             # All dependencies
+├── .env.example                 # Configuration template
+├── .streamlit/
+│   ├── config.toml              # Streamlit runtime config
+│   └── secrets.toml.example     # Template for Streamlit Cloud secrets
+├── streamlit_deployment_guide.md # Streamlit Cloud deployment walkthrough
+└── README.md                    # This file
 ```
 
 ---

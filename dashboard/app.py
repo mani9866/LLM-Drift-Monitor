@@ -16,6 +16,14 @@ from sqlalchemy.orm import Session
 # Add parent directory to path so `src` is importable regardless of cwd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Bridge Streamlit Cloud secrets into env vars before importing src.database,
+# which reads DATABASE_URL via os.getenv at import time.
+try:
+    for key, value in st.secrets.items():
+        os.environ.setdefault(key.upper(), str(value))
+except Exception:
+    pass  # no secrets.toml present (e.g. local dev) - fall back to real env vars
+
 from src.database import SessionLocal
 from src.models.orm import Conversation, Turn, Metric, Alert
 from src.detectors import compute_all_scores, get_embeddings, cosine_distance
@@ -59,9 +67,14 @@ st.title("🔍 LLM Drift Monitor")
 st.markdown("**Real-time monitoring of LLM conversation drift with multi-metric detection**")
 
 
-@st.cache_resource
 def get_db_session():
-    """Get database session (cached)."""
+    """Get a fresh database session for this call.
+
+    Not cached: a single shared Session across all users/reruns of the
+    Streamlit process risks stale/concurrent-transaction state. The
+    underlying engine (src.database.engine) already pools connections,
+    so opening a new lightweight Session per call is cheap.
+    """
     return SessionLocal()
 
 
@@ -207,15 +220,20 @@ def plot_conversation_drift(conversation_id: str):
     return fig
 
 
-def plot_time_series_drift():
-    """Plot time-series of drift rate across corpus."""
+def plot_time_series_drift(threshold: float = 0.5):
+    """Plot time-series of drift rate across corpus.
+
+    drift_detected is recomputed live from ensemble_score against the given
+    threshold (rather than using the stored drift_detected column, which
+    reflects whatever threshold was in effect at scoring time) so the
+    sidebar's Drift Threshold slider actually affects this view.
+    """
     db = get_db_session()
 
     # Get drift metrics by hour
     metrics = db.query(
         Metric.created_at,
         Metric.ensemble_score,
-        Metric.drift_detected,
     ).all()
 
     if not metrics:
@@ -227,12 +245,12 @@ def plot_time_series_drift():
         {
             "timestamp": m.created_at,
             "ensemble_score": m.ensemble_score,
-            "drift_detected": m.drift_detected,
         }
         for m in metrics
     ])
+    df["drift_detected"] = df["ensemble_score"] >= threshold
 
-    df["hour"] = pd.to_datetime(df["timestamp"]).dt.floor("H")
+    df["hour"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
     hourly = df.groupby("hour").agg({
         "drift_detected": "sum",
         "ensemble_score": "mean",
@@ -339,6 +357,19 @@ if page == "Overview":
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
 
+    st.markdown("---")
+    st.subheader("⚠️ High-Risk Conversations")
+    if len(df_conversations) > 0:
+        high_risk = df_conversations[
+            df_conversations["ensemble_score"].notna() & (df_conversations["ensemble_score"] >= drift_threshold)
+        ].sort_values("ensemble_score", ascending=False).head(5)
+    else:
+        high_risk = df_conversations
+    if not high_risk.empty:
+        st.dataframe(high_risk[["id", "ground_truth", "ensemble_score", "detected_index"]], use_container_width=True)
+    else:
+        st.info("No conversations exceed the current threshold yet")
+
 
 elif page == "Conversation List":
     st.header("📋 Conversation List")
@@ -353,6 +384,10 @@ elif page == "Conversation List":
     with col2:
         limit = st.selectbox("Show top N:", [50, 100, 200, 500])
 
+    only_above_threshold = st.checkbox(
+        "Only show conversations at/above threshold", value=False
+    )
+
     # Load data
     df = get_conversations_with_metrics(limit)
 
@@ -362,6 +397,9 @@ elif page == "Conversation List":
             df = df[df["is_drifted"] == True]
         elif ground_truth_filter == "Coherent":
             df = df[df["is_drifted"] == False]
+
+        if only_above_threshold:
+            df = df[df["ensemble_score"].fillna(-1) >= drift_threshold]
 
         # Display table
         display_cols = [
@@ -377,6 +415,12 @@ elif page == "Conversation List":
         ]
 
         st.dataframe(df_display, use_container_width=True, height=600)
+        st.download_button(
+            "Download as CSV",
+            data=df_display.to_csv(index=False),
+            file_name="conversations.csv",
+            mime="text/csv",
+        )
 
 
 elif page == "Conversation Detail":
@@ -454,7 +498,7 @@ elif page == "Conversation Detail":
 elif page == "Time Series Analysis":
     st.header("📈 Time Series Analysis")
 
-    fig = plot_time_series_drift()
+    fig = plot_time_series_drift(drift_threshold)
     if fig:
         st.plotly_chart(fig, use_container_width=True)
 
@@ -465,19 +509,19 @@ elif page == "Time Series Analysis":
     db = get_db_session()
     metrics = db.query(
         Metric.created_at,
-        Metric.drift_detected,
+        Metric.ensemble_score,
     ).all()
 
     if metrics:
         df = pd.DataFrame([
             {
                 "timestamp": m.created_at,
-                "drift_detected": m.drift_detected,
+                "drift_detected": m.ensemble_score >= drift_threshold,
             }
             for m in metrics
         ])
 
-        df["hour"] = pd.to_datetime(df["timestamp"]).dt.floor("H")
+        df["hour"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
         hourly = df.groupby("hour").agg({
             "drift_detected": ["sum", "count"],
         }).reset_index()

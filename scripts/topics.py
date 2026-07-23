@@ -1,0 +1,50 @@
+"""Shared topic list for synthetic conversation generation.
+
+Used by both generate_conversations.py (real API) and
+generate_mock_conversations.py (template-based, no API) so the two
+generators stay in sync.
+"""
+
+TOPICS = [
+    "planning a two-week trip to Japan",
+    "debugging a Python memory leak",
+    "starting a ketogenic diet",
+    "basics of index fund investing",
+    "training a puppy not to bite",
+    "writing a college application essay",
+    "budgeting a kitchen renovation",
+    "routine car maintenance schedules",
+    "learning acoustic guitar as a beginner",
+    "starting a small online business",
+    "improving marathon running times",
+    "meal-prepping for a busy work week",
+    "choosing a home security system",
+    "basics of home gardening in containers",
+    "understanding mortgage interest rates",
+    "preparing for a coding interview",
+    "writing a professional resume",
+    "learning conversational Spanish",
+    "astronomy for backyard stargazing",
+    "getting started with film photography",
+    "planning a small backyard wedding",
+    "adopting a rescue cat",
+    "understanding basic tax deductions",
+    "starting a meditation practice",
+    "picking a new gaming PC build",
+    "improving sleep quality",
+    "learning to bake sourdough bread",
+    "choosing health insurance plans",
+    "getting into rock climbing",
+    "building a personal finance spreadsheet",
+    "watercolor painting for beginners",
+    "understanding climate change basics",
+    "starting a vegetable compost bin",
+    "preparing for a job interview",
+    "learning basic woodworking",
+    "picking a language to learn next",
+    "understanding cryptocurrency basics",
+    "training for a first triathlon",
+    "choosing a college major",
+    "planning a cross-country move",
+    "improving public speaking skills",
+]

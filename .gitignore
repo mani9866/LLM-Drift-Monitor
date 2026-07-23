@@ -4,3 +4,5 @@ __pycache__/
 .env
 data/*.jsonl
 data/*.csv
+drift_monitor.db
+.streamlit/secrets.toml

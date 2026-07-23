@@ -1,16 +1,19 @@
 """FastAPI application for ingesting conversations and serving metrics."""
+import logging
+import os
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, Header, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from src.database import get_db, init_db
 from src.models.orm import Conversation, Turn, Metric
 from src.api.schemas import ConversationIngestSchema, ConversationResponseSchema, MetricsSchema
-from src.detectors import compute_all_scores
+from src.flows.scoring import score_and_persist_conversation
 
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -18,6 +21,17 @@ app = FastAPI(
     description="API for ingesting conversations and accessing drift metrics",
     version="1.0.0"
 )
+
+
+def verify_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+    """Require a matching X-API-Key header when API_KEY is configured.
+
+    If the API_KEY env var is unset, auth is skipped entirely so local/dev
+    usage is unaffected.
+    """
+    expected = os.getenv("API_KEY")
+    if expected and x_api_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @app.on_event("startup")
@@ -32,7 +46,7 @@ async def health():
     return {"status": "healthy"}
 
 
-@app.post("/conversations")
+@app.post("/conversations", dependencies=[Depends(verify_api_key)])
 async def ingest_conversation(
     payload: ConversationIngestSchema,
     background_tasks: BackgroundTasks,
@@ -40,7 +54,7 @@ async def ingest_conversation(
 ):
     """
     Ingest a conversation with ground-truth labels.
-    
+
     Stores the conversation and its turns in Postgres.
     Metrics will be computed by the Prefect flow.
     """
@@ -75,17 +89,40 @@ async def ingest_conversation(
             db.add(turn_record)
 
         db.commit()
-
-        return {
-            "id": payload.id,
-            "status": "ingested",
-            "num_turns": payload.num_turns,
-            "message": "Conversation ingested. Metrics will be computed by the scoring flow."
-        }
-
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error ingesting conversation: {str(e)}")
+
+    # Scoring is best-effort at ingest time: the conversation is already
+    # persisted above, so a scoring failure here must not be reported as an
+    # ingest failure (a client retry would otherwise hit a 409).
+    scored = True
+    score_error = None
+    try:
+        score_payload = {
+            "id": payload.id,
+            "is_drifted": payload.is_drifted,
+            "drift_turn_index": payload.drift_turn_index,
+            "turns": [
+                {"role": turn.role, "content": turn.content}
+                for turn in payload.turns
+            ],
+        }
+        score_and_persist_conversation(score_payload, db=db)
+    except Exception as e:
+        logger.warning("Scoring failed for conversation %s: %s", payload.id, e)
+        scored = False
+        score_error = str(e)
+
+    return {
+        "id": payload.id,
+        "status": "ingested",
+        "scored": scored,
+        "score_error": score_error,
+        "num_turns": payload.num_turns,
+        "message": "Conversation ingested." if scored else
+                    "Conversation ingested, but scoring failed and will need to be retried via /score.",
+    }
 
 
 @app.get("/conversations/{conversation_id}/metrics", response_model=ConversationResponseSchema)
@@ -188,6 +225,28 @@ async def list_conversations(
         ))
 
     return results
+
+
+@app.post("/conversations/{conversation_id}/score", dependencies=[Depends(verify_api_key)])
+async def score_conversation_endpoint(
+    conversation_id: str,
+    threshold: float = 0.5,
+    db: Session = Depends(get_db),
+):
+    """Recompute metrics for a specific conversation and persist them."""
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+
+    turns = db.query(Turn).filter(Turn.conversation_id == conversation_id).order_by(Turn.turn_index).all()
+    payload = {
+        "id": conversation.id,
+        "is_drifted": conversation.is_drifted,
+        "drift_turn_index": conversation.drift_turn_index,
+        "turns": [{"role": turn.role, "content": turn.content} for turn in turns],
+    }
+    metrics = score_and_persist_conversation(payload, db=db, threshold=threshold)
+    return {"id": conversation_id, "status": "scored", **metrics}
 
 
 @app.get("/stats")
