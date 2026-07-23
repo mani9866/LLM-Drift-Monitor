@@ -17,6 +17,7 @@ sentence-transformers>=2.3.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
 torch==2.13.0
+torchvision
 
 # Workflow orchestration
 prefect>=3.0.0
