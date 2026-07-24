@@ -603,4 +603,4 @@ def my_detector(conversation: Dict[str, Any]) -> float:
 
 ---
 
-**Built in 3 days. Production-ready. Deployed to Render/Railway. Ready for Oct 2026 recruiter review.** 🚀
+Built independently to explore production-grade LLM observability patterns.
