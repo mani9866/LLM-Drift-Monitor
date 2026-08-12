@@ -1,15 +1,9 @@
 name: Score conversations & send Slack alerts
 
-# Streamlit Community Cloud only runs the dashboard web process - it can't
-# run background/scheduled jobs. This workflow is the scheduler: it connects
-# straight to the same Supabase Postgres database the dashboard uses, scores
-# any unscored conversations, and posts a Slack message for any drift alert
-# that fires. Runs independently of whether anyone has the dashboard open.
-
 on:
   schedule:
-    - cron: "*/15 * * * *"  # every 15 minutes (GitHub may delay slightly under load)
-  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
 
 jobs:
   score-and-alert:
@@ -24,62 +18,60 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
       - name: Debug DB env presence
         run: |
           if [ -z "$DB_HOST" ]; then echo "DB_HOST is empty"; else echo "DB_HOST is set"; fi
           if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL is empty"; else echo "DATABASE_URL is set"; fi
 
       - name: Test DB connectivity (safe)
-  env:
-    DB_HOST: ${{ secrets.DB_HOST }}
-    DB_PORT: ${{ secrets.DB_PORT }}
-    DB_USER: ${{ secrets.DB_USER }}
-    DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-    DB_NAME: ${{ secrets.DB_NAME }}
-    DATABASE_URL: ${{ secrets.DATABASE_URL }}
-  run: |
-    python - <<'PY'
-    import os, sys
-    from sqlalchemy import create_engine, text
-    from sqlalchemy.engine import URL
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from sqlalchemy import create_engine, text
+          from sqlalchemy.engine import URL
 
-    # Prefer DATABASE_URL if provided
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url and os.getenv("DB_HOST"):
-        # Build a URL using SQLAlchemy so we don't echo secrets here
-        db_url = URL.create(
-            "postgresql+psycopg2",
-            username=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            host=os.getenv("DB_HOST"),
-            port=int(os.getenv("DB_PORT") or 5432),
-            database=os.getenv("DB_NAME"),
-        )
-    if not db_url:
-        print("No DB url available; skipping connectivity test")
-        sys.exit(0)
+          db_url = os.getenv("DATABASE_URL")
+          if not db_url and os.getenv("DB_HOST"):
+              db_url = URL.create(
+                  "postgresql+psycopg2",
+                  username=os.getenv("DB_USER"),
+                  password=os.getenv("DB_PASSWORD"),
+                  host=os.getenv("DB_HOST"),
+                  port=int(os.getenv("DB_PORT") or 5432),
+                  database=os.getenv("DB_NAME"),
+              )
+          if not db_url:
+              print("No DB url available; skipping connectivity test")
+              sys.exit(0)
 
-    print("Attempting to connect using SQLAlchemy (will not print secrets)...")
-    try:
-        engine = create_engine(db_url, pool_pre_ping=True, connect_args={})
-        with engine.connect() as conn:
-            res = conn.execute(text("SELECT 1"))
-            print("Connection test OK, result:", res.scalar())
-    except Exception as e:
-        # Print exception message to diagnose (this may include host info but not secret values)
-        print("Connection test failed with exception:", repr(e))
-        sys.exit(2)
-    PY
+          print("Attempting to connect using SQLAlchemy (will not print secrets)...")
+          try:
+              engine = create_engine(db_url, pool_pre_ping=True, connect_args={})
+              with engine.connect() as conn:
+                  res = conn.execute(text("SELECT 1"))
+                  print("Connection test OK, result:", res.scalar())
+          except Exception as e:
+              print("Connection test failed with exception:", repr(e))
+              sys.exit(2)
+          PY
 
-- name: Init DB (create tables)
-  env:
-    DB_HOST: ${{ secrets.DB_HOST }}
-    DB_PORT: ${{ secrets.DB_PORT }}
-    DB_USER: ${{ secrets.DB_USER }}
-    DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-    DB_NAME: ${{ secrets.DB_NAME }}
-    DATABASE_URL: ${{ secrets.DATABASE_URL }}
-  run: python -c "from src.database import init_db; init_db()"
+      - name: Init DB (create tables)
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -c "from src.database import init_db; init_db()"
 
       - name: Run scoring flow
         env:
