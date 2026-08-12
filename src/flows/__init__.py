@@ -14,7 +14,7 @@ import requests
 
 
 # Configuration
-DRIFT_THRESHOLD = 0.5
+DRIFT_THRESHOLD = float(os.getenv("DRIFT_THRESHOLD") or "0.5")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
 
