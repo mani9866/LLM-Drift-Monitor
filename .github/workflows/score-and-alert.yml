@@ -54,7 +54,7 @@ jobs:
 
           print("Attempting to connect using SQLAlchemy (will not print secrets)...")
           try:
-              engine = create_engine(db_url, pool_pre_ping=True, connect_args={})
+              engine = create_engine(str(db_url), pool_pre_ping=True, connect_args={})
               with engine.connect() as conn:
                   res = conn.execute(text("SELECT 1"))
                   print("Connection test OK, result:", res.scalar())
