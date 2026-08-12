@@ -27,7 +27,6 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        continue-on-error: true
         run: python -c "from src.database import init_db; init_db()"
 
       - name: Run scoring flow
