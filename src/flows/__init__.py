@@ -88,20 +88,25 @@ def save_metrics(scores_list: list) -> int:
             is_drifted = scores.pop("is_drifted")
             drift_turn_index = scores.pop("drift_turn_index")
 
-            # Determine if drift was detected
-            ensemble_score = scores["ensemble_score"]
+            # Determine if drift was detected. Scores come back as numpy
+            # scalars (e.g. numpy.float32) from the detectors; psycopg2 can't
+            # adapt those directly, so cast to native Python types first.
+            ensemble_score = float(scores["ensemble_score"])
             drift_detected = ensemble_score >= DRIFT_THRESHOLD
+            detected_drift_index = scores.get("rolling_window_drift_index")
+            if detected_drift_index is not None:
+                detected_drift_index = int(detected_drift_index)
 
             # Create metric record
             metric = Metric(
                 id=str(uuid.uuid4()),
                 conversation_id=conversation_id,
-                semantic_drift_score=scores["semantic_drift"],
-                rolling_window_drift_score=scores["rolling_window_drift"],
-                response_anomaly_score=scores["response_anomaly"],
+                semantic_drift_score=float(scores["semantic_drift"]),
+                rolling_window_drift_score=float(scores["rolling_window_drift"]),
+                response_anomaly_score=float(scores["response_anomaly"]),
                 ensemble_score=ensemble_score,
                 drift_detected=drift_detected,
-                detected_drift_index=scores.get("rolling_window_drift_index"),
+                detected_drift_index=detected_drift_index,
             )
 
             db.add(metric)
