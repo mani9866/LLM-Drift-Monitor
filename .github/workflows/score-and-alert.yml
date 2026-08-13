@@ -1,9 +1,15 @@
 name: Score conversations & send Slack alerts
 
+# Streamlit Community Cloud only runs the dashboard web process - it can't
+# run background/scheduled jobs. This workflow is the scheduler: it connects
+# straight to the same Supabase Postgres database the dashboard uses, scores
+# any unscored conversations, and posts a Slack message for any drift alert
+# that fires. Runs independently of whether anyone has the dashboard open.
+
 on:
   schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {}
+    - cron: "*/15 * * * *"  # every 15 minutes (GitHub may delay slightly under load)
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
 
 jobs:
   score-and-alert:
@@ -19,20 +25,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Init DB (create tables)
-        env:
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python -c "from src.database import init_db; init_db()"
-
       - name: Run scoring flow
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_PORT: ${{ secrets.DB_PORT || '6543' }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
