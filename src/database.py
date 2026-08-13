@@ -18,7 +18,7 @@ def _build_database_url():
     """
     host = os.getenv("DB_HOST")
     if host:
-        return URL.create(
+        url = URL.create(
             "postgresql+psycopg2",
             username=os.getenv("DB_USER", "postgres"),
             password=os.getenv("DB_PASSWORD"),
@@ -26,6 +26,7 @@ def _build_database_url():
             port=int(os.getenv("DB_PORT", "5432")),
             database=os.getenv("DB_NAME", "postgres"),
         )
+        return str(url)  # Convert URL object to string
     return os.getenv(
         "DATABASE_URL",
         "sqlite:///drift_monitor.db"  # Local SQLite database for development
